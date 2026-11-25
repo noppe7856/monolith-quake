@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MONOLITH — 3D Seismic & Lo-Fi Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f6f6f4;
+      --surface: rgba(255, 255, 255, 0.82);
+      --ink: #141414;
+      --ink-muted: #6e6e6a;
+      --border: rgba(20, 20, 20, 0.12);
+      --border-strong: rgba(20, 20, 20, 0.28);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background-color: #f6f6f4;
+      color: var(--ink);
+      font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      touch-action: none;
+    }
+    #stage {
+      position: fixed; inset: 0;
+      width: 100vw; height: 100vh;
+      display: block; cursor: grab;
+    }
+    #stage:active { cursor: grabbing; }
+
+    .hud-top-left {
+      position: fixed; top: 20px; left: 24px; z-index: 20;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .brand {
+      font-size: 13px; font-weight: 600; letter-spacing: 0.22em;
+      color: var(--ink);
+    }
+    .mode-switch {
+      display: inline-flex; align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px; padding: 2px;
+      backdrop-filter: blur(10px);
+    }
+    .mode-btn {
+      border: none; background: transparent; color: var(--ink-muted);
+      font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em;
+      padding: 5px 12px; border-radius: 999px; cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .mode-btn.active { background: var(--ink); color: #ffffff; }
+
+    .hud-top-right {
+      position: fixed; top: 20px; right: 24px; z-index: 20;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pill-btn {
+      background: var(--surface); color: var(--ink);
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: 6px 13px; font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; letter-spacing: 0.08em; cursor: pointer;
+      backdrop-filter: blur(10px); transition: all 0.2s ease;
+    }
+    .pill-btn:hover { border-color: var(--border-strong); background: #ffffff; }
+
+    #quake-caption {
+      position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+      z-index: 18; pointer-events: none;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      letter-spacing: 0.06em; color: var(--ink);
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: 6px 16px; white-space: nowrap;
+      backdrop-filter: blur(8px);
+      opacity: 0; transition: opacity 0.55s ease;
+    }
+    #quake-caption.visible { opacity: 1; }
+
+    .lofi-bar {
+      position: fixed; left: 24px; bottom: 22px; z-index: 20;
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 999px; padding: 6px 10px 6px 6px;
+      backdrop-filter: blur(12px);
+    }
+    #play-btn {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 1px solid var(--ink); background: var(--ink); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 11px; transition: opacity 0.2s;
+    }
+    #play-btn:hover { opacity: 0.85; }
+    #wave-canvas { width: 84px; height: 22px; display: block; }
+    #audio-more-btn {
+      border: none; background: transparent; color: var(--ink-muted);
+      font-size: 15px; line-height: 1; padding: 4px 6px; cursor: pointer;
+    }
+    #audio-more-btn:hover { color: var(--ink); }
+
+    #audio-popover {
+      position: fixed; left: 24px; bottom: 74px; z-index: 25;
+      width: 240px; padding: 14px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid var(--border); border-radius: 12px;
+      backdrop-filter: blur(14px);
+      display: none; flex-direction: column; gap: 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    }
+    #audio-popover.open { display: flex; }
+    .pop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .pop-row label { color: var(--ink-muted); }
+    .pop-row input[type="range"] { width: 110px; accent-color: var(--ink); }
+    .mini-chip {
+      border: 1px solid var(--border); background: transparent; color: var(--ink);
+      padding: 3px 8px; border-radius: 6px; font-family: inherit; font-size: 10px; cursor: pointer;
+    }
+    .mini-chip.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+    #history-bar {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+      z-index: 20; display: none; align-items: center; gap: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 999px; padding: 7px 14px;
+      backdrop-filter: blur(12px);
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      max-width: calc(100vw - 320px);
+    }
+    #history-bar.visible { display: flex; }
+    #history-slider { width: 170px; accent-color: var(--ink); cursor: pointer; }
+    #history-date { min-width: 84px; color: var(--ink-muted); font-size: 10px; }
+
+    #info-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 320px; max-width: 88vw;
+      z-index: 30; background: rgba(250, 250, 248, 0.96);
+      border-left: 1px solid var(--border);
+      backdrop-filter: blur(16px);
+      transform: translateX(100%); transition: transform 0.28s ease;
+      display: flex; flex-direction: column; padding: 20px;
+    }
+    #info-drawer.open { transform: translateX(0); }
+    .drawer-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 14px; border-bottom: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em;
+    }
+    .drawer-controls {
+      display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    #quake-list {
+      flex: 1; overflow-y: auto; margin-top: 10px;
+      display: flex; flex-direction: column; gap: 8px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    }
+    .quake-item {
+      padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      background: #fff; cursor: pointer; transition: border-color 0.15s;
+    }
+    .quake-item:hover { border-color: var(--ink); }
+    .quake-item-top { display: flex; justify-content: space-between; font-weight: 500; margin-bottom: 3px; }
+    .quake-item-place { color: var(--ink-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    @media (max-width: 720px) {
+      #history-bar { bottom: 72px; max-width: calc(100vw - 32px); padding: 6px 10px; }
+      #history-slider { width: 110px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div class="hud-top-left">
+    <div class="brand">MONOLITH</div>
+    <div class="mode-switch" role="tablist">
+      <button id="btn-live" class="mode-btn active" type="button">LIVE</button>
+      <button id="btn-30d" class="mode-btn" type="button">30D</button>
+    </div>
+  </div>
+
+  <div class="hud-top-right">
+    <button id="btn-sim" class="pill-btn" type="button">SIM</button>
+    <button id="btn-info" class="pill-btn" type="button">INFO</button>
+  </div>
+
+  <div id="quake-caption"></div>
+
+  <div class="lofi-bar">
+    <button id="play-btn" type="button" aria-label="Play Lo-Fi">▶</button>
+    <canvas id="wave-canvas" width="168" height="44"></canvas>
+    <button id="audio-more-btn" type="button" aria-label="Audio Settings">⋯</button>
+  </div>
+
+  <div id="audio-popover">
+    <div class="pop-row">
+      <label>CHORD</label>
+      <div>
+        <button class="mini-chip active" data-preset="0" type="button">I</button>
+        <button class="mini-chip" data-preset="1" type="button">II</button>
+        <button class="mini-chip" data-preset="2" type="button">III</button>
+      </div>
+    </div>
+    <div class="pop-row">
+      <label for="vinyl-range">VINYL</label>
+      <input id="vinyl-range" type="range" min="0" max="1" step="0.05" value="0.35" />
+    </div>
+    <div class="pop-row">
+      <label>SFX</label>
+      <button id="sfx-toggle" class="mini-chip active" type="button">ON</button>
+    </div>
+    <div class="pop-row">
+      <label>ROTATE</label>
+      <button id="rotate-toggle" class="mini-chip active" type="button">ON</button>
+    </div>
+  </div>
+
+  <div id="history-bar">
+    <button id="history-play-btn" class="mini-chip active" type="button">❚❚</button>
+    <input id="history-slider" type="range" min="0" max="1000" value="0" />
+    <span id="history-date">--/--</span>
+    <button id="history-speed-btn" class="mini-chip" type="button">1D/3s</button>
+    <button id="history-mag-btn" class="mini-chip" type="button">ALL</button>
+  </div>
+
+  <aside id="info-drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <span>SEISMIC LOG</span>
+      <button id="drawer-close" class="mini-chip" type="button">CLOSE</button>
+    </div>
+    <div class="drawer-controls">
+      <span id="status-text" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6e6e6a;">READY</span>
+    </div>
+    <div id="quake-list"></div>
+  </aside>
+
+  <script>
+    (function () {
+      const THREE_CDNS = [
+        'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+        'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js',
+        'https://unpkg.com/three@0.128.0/build/three.min.js'
+      ];
+
+      function loadScriptSequential(urls, idx, onDone) {
+        if (window.THREE) return onDone(true);
+        if (idx >= urls.length) return onDone(false);
+        const s = document.createElement('script');
+        s.src = urls[idx];
+        s.async = true;
+        s.onload = () => onDone(true);
+        s.onerror = () => loadScriptSequential(urls, idx + 1, onDone);
+        document.head.appendChild(s);
+      }
+
+      const FALLBACK_COASTLINES = [
+        [[-168,66],[-140,70],[-125,69],[-95,68],[-80,63],[-64,59],[-55,52],[-67,44],[-75,35],[-81,25],[-83,30],[-97,26],[-87,21],[-78,9],[-85,10],[-92,15],[-105,20],[-117,32],[-124,42],[-130,54],[-152,60],[-168,66]],
+        [[-80,9],[-72,12],[-60,8],[-50,0],[-35,-6],[-39,-18],[-48,-26],[-58,-38],[-66,-54],[-74,-52],[-71,-30],[-81,-5],[-80,9]],
+        [[-10,36],[0,39],[5,43],[12,44],[16,40],[24,38],[28,41],[38,45],[28,55],[20,60],[15,68],[30,70],[55,68],[80,72],[115,72],[145,70],[170,66],[160,55],[140,52],[130,42],[122,31],[110,20],[100,14],[104,2],[96,16],[80,8],[70,22],[58,24],[44,12],[36,30],[28,36],[12,37],[-10,36]],
+        [[-17,15],[-5,5],[10,4],[12,-12],[18,-34],[32,-28],[40,-12],[50,12],[42,15],[33,31],[10,37],[-6,35],[-17,22],[-17,15]],
+        [[114,-22],[129,-14],[142,-11],[153,-26],[149,-38],[136,-35],[115,-34],[114,-22]],
+        [[130,31],[135,34],[140,36],[141,41],[145,44],[140,45],[139,38],[132,35],[130,31]]
+      ];
+
+      function decodeTopoJson(topology, objectName) {
+        const lines = [];
+        if (!topology || !topology.objects || !topology.arcs) return lines;
+        const obj = topology.objects[objectName] || Object.values(topology.objects)[0];
+        if (!obj) return lines;
+        const scale = topology.transform ? topology.transform.scale : [1, 1];
+        const translate = topology.transform ? topology.transform.translate : [0, 0];
+
+        function decodeArc(arcIndex) {
+          const rev = arcIndex < 0;
+          const idx = rev ? ~arcIndex : arcIndex;
+          const raw = topology.arcs[idx];
+          if (!raw) return [];
+          const pts = [];
+          let x = 0, y = 0;
+          for (let i = 0; i < raw.length; i++) {
+            x += raw[i][0];
+            y += raw[i][1];
+            pts.push([x * scale[0] + translate[0], y * scale[1] + translate[1]]);
+          }
+          return rev ? pts.reverse() : pts;
+        }
+
+        function processRing(arcIndices) {
+          const ring = [];
+          for (const a of arcIndices) {
+            const pts = decodeArc(a);
+            for (let i = 0; i < pts.length; i++) {
+              if (i === 0 && ring.length > 0) continue;
+              ring.push(pts[i]);
+            }
+          }
+          if (ring.length > 1) lines.push(ring);
+        }
+
+        function walk(geom) {
+          if (!geom) return;
+          if (geom.type === 'GeometryCollection') {
+            (geom.geometries || []).forEach(walk);
+          } else if (geom.type === 'Polygon') {
+            (geom.arcs || []).forEach(processRing);
+          } else if (geom.type === 'MultiPolygon') {
+            (geom.arcs || []).forEach(poly => poly.forEach(processRing));
+          }
+        }
+        walk(obj);
+        return lines;
+      }
+
+      class MonolithAudioEngine {
+        constructor() {
+          this.ctx = null;
+          this.analyser = null;
+          this.masterGain = null;
+          this.vinylGain = null;
+          this.isPlaying = false;
+          this.sfxEnabled = true;
+          this.presetIndex = 0;
+          this.vinylLevel = 0.35;
+          this.step = 0;
+          this.timer = null;
+          this.presets = [
+            [[261.63, 329.63, 392.0, 493.88], [220.0, 261.63, 329.63, 392.0], [174.61, 220.0, 261.63, 329.63], [196.0, 246.94, 293.66, 349.23]],
+            [[293.66, 349.23, 440.0, 523.25], [196.0, 246.94, 293.66, 349.23], [261.63, 329.63, 392.0, 493.88], [220.0, 261.63, 329.63, 392.0]],
+            [[233.08, 293.66, 349.23, 440.0], [196.0, 233.08, 293.66, 349.23], [155.56, 196.0, 233.08, 293.66], [174.61, 220.0, 261.63, 311.13]]
+          ];
+        }
+
+        ensureContext() {
+          if (!this.ctx) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            this.ctx = new AC();
+            this.masterGain = this.ctx.createGain();
+            this.masterGain.gain.value = 0.32;
+            this.analyser = this.ctx.createAnalyser();
+            this.analyser.fftSize = 128;
+            this.masterGain.connect(this.analyser);
+            this.analyser.connect(this.ctx.destination);
+            this.setupVinylNoise();
+          }
+          if (this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(() => {});
+          }
+          return this.ctx;
+        }
+
+        setupVinylNoise() {
+          const sr = this.ctx.sampleRate;
+          const buf = this.ctx.createBuffer(1, sr * 2, sr);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < data.length; i++) {
+            const crackle = Math.random() < 0.0018 ? (Math.random() * 2 - 1) * 0.45 : 0;
+            data[i] = (Math.random() * 2 - 1) * 0.015 + crackle;
+          }
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          src.loop = true;
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'bandpass';
+          filter.frequency.value = 2200;
+          this.vinylGain = this.ctx.createGain();
+          this.vinylGain.gain.value = 0;
+          src.connect(filter);
+          filter.connect(this.vinylGain);
+          this.vinylGain.connect(this.masterGain);
+          src.start();
+        }
+
+        togglePlay() {
+          const ctx = this.ensureContext();
+          if (!ctx) return false;
+          this.isPlaying = !this.isPlaying;
+          if (this.isPlaying) {
+            this.vinylGain.gain.setTargetAtTime(this.vinylLevel * 0.45, ctx.currentTime, 0.15);
+            this.startSequencer();
+          } else {
+            this.vinylGain.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
+            if (this.timer) { clearInterval(this.timer); this.timer = null; }
+          }
+          return this.isPlaying;
+        }
+
+        setVinyl(val) {
+          this.vinylLevel = val;
+          if (this.ctx && this.vinylGain && this.isPlaying) {
+            this.vinylGain.gain.setTargetAtTime(val * 0.45, this.ctx.currentTime, 0.1);
+          }
+        }
+
+        startSequencer() {
+          if (this.timer) clearInterval(this.timer);
+          const stepMs = 390;
+          this.playStep();
+          this.timer = setInterval(() => this.playStep(), stepMs);
+        }
+
+        playStep() {
+          if (!this.ctx || !this.isPlaying) return;
+          const now = this.ctx.currentTime + (this.step % 2 === 1 ? 0.025 : 0);
+          if (this.step % 8 === 0) {
+            const chordIdx = Math.floor(this.step / 8) % 4;
+            const notes = this.presets[this.presetIndex][chordIdx];
+            notes.forEach((freq) => {
+              const osc = this.ctx.createOscillator();
+              const g = this.ctx.createGain();
+              const lp = this.ctx.createBiquadFilter();
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(freq * (1 + (Math.random() - 0.5) * 0.004), now);
+              lp.type = 'lowpass';
+              lp.frequency.value = 950;
+              g.gain.setValueAtTime(0.0001, now);
+              g.gain.linearRampToValueAtTime(0.065, now + 0.08);
+              g.gain.exponentialRampToValueAtTime(0.0008, now + 2.8);
+              osc.connect(lp); lp.connect(g); g.connect(this.masterGain);
+              osc.start(now); osc.stop(now + 2.9);
+            });
+          }
+          if (this.step % 4 === 0 || this.step % 8 === 5) {
+            const kick = this.ctx.createOscillator();
+            const kg = this.ctx.createGain();
+            kick.frequency.setValueAtTime(110, now);
+            kick.frequency.exponentialRampToValueAtTime(42, now + 0.12);
+            kg.gain.setValueAtTime(0.22, now);
+            kg.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+            kick.connect(kg); kg.connect(this.masterGain);
+            kick.start(now); kick.stop(now + 0.2);
+          }
+          if (this.step % 4 === 2) {
+            this.triggerNoiseHit(now, 1400, 0.07, 0.06);
+          }
+          this.step = (this.step + 1) % 32;
+        }
+
+        triggerNoiseHit(startTime, freq, duration, volume) {
+          const sr = this.ctx.sampleRate;
+          const len = Math.max(1, Math.floor(sr * duration));
+          const buf = this.ctx.createBuffer(1, len, sr);
+          const ch = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) ch[i] = Math.random() * 2 - 1;
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          const bp = this.ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.value = freq;
+          bp.Q.value = 1.4;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(volume, startTime);
+          g.gain.exponentialRampToValueAtTime(0.0005, startTime + duration);
+          src.connect(bp); bp.connect(g); g.connect(this.masterGain);
+          src.start(startTime);
+        }
+
+        playGatherNoiseSFX(mag) {
+          if (!this.sfxEnabled || !this.ctx || this.ctx.state !== 'running') return;
+          const now = this.ctx.currentTime;
+          const dur = 0.75;
+          const sr = this.ctx.sampleRate;
+          const buf = this.ctx.createBuffer(1, Math.floor(sr * dur), sr);
+          const ch = buf.getChannelData(0);
+          for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          const bp = this.ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.setValueAtTime(420, now);
+          bp.frequency.exponentialRampToValueAtTime(980 + (mag || 4) * 90, now + dur);
+          bp.Q.value = 2.6;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.0005, now);
+          g.gain.linearRampToValueAtTime(0.045, now + dur * 0.85);
+          g.gain.exponentialRampToValueAtTime(0.0005, now + dur);
+          src.connect(bp); bp.connect(g); g.connect(this.ctx.destination);
+          src.start(now);
+        }
+
+        playRuptureSFX(mag) {
+          if (!this.sfxEnabled || !this.ctx || this.ctx.state !== 'running') return;
+          const now = this.ctx.currentTime;
+          const dur = Math.min(0.32, 0.12 + (mag || 4) * 0.025);
+          const sr = this.ctx.sampleRate;
+          const buf = this.ctx.createBuffer(1, Math.floor(sr * dur), sr);
+          const ch = buf.getChannelData(0);
+          for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / ch.length, 1.8);
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          const bp = this.ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.value = Math.max(380, 1200 - (mag || 4) * 90);
+          bp.Q.value = 1.2;
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(0.09, now);
+          g.gain.exponentialRampToValueAtTime(0.0005, now + dur);
+          src.connect(bp); bp.connect(g); g.connect(this.ctx.destination);
+          src.start(now);
+        }
+      }
+
+      const audioEngine = new MonolithAudioEngine();
+      window.addEventListener('pointerdown', () => audioEngine.ensureContext(), { once: true });
+
+      const canvas = document.getElementById('stage');
+      const waveCanvas = document.getElementById('wave-canvas');
+      const waveCtx = waveCanvas.getContext('2d');
+      const captionEl = document.getElementById('quake-caption');
+      const statusText = document.getElementById('status-text');
+      const quakeListEl = document.getElementById('quake-list');
+      const infoDrawer = document.getElementById('info-drawer');
+      const historyBar = document.getElementById('history-bar');
+      const historySlider = document.getElementById('history-slider');
+      const historyDateEl = document.getElementById('history-date');
+
+      let mode = 'LIVE';
+      let autoRotate = true;
+      let captionTimer = null;
+      let liveEvents = [];
+      let historyEvents = [];
+      let knownIds = new Set();
+      let historyPlaying = true;
+      let historyProgress = 0;
+      let speedIdx = 1;
+      const SPEEDS = [
+        { label: '1D/10s', daysPerSec: 0.1 },
+        { label: '1D/3s', daysPerSec: 0.33 },
+        { label: '1D/1s', daysPerSec: 1.0 },
+        { label: '3D/1s', daysPerSec: 3.0 }
+      ];
+      let magFilterIdx = 0;
+      const MAG_FILTERS = [
+        { label: 'ALL', min: 0 },
+        { label: 'M4+', min: 4 },
+        { label: 'M5+', min: 5 },
+        { label: 'M6+', min: 6 }
+      ];
+      let lastHistoryIdx = -1;
+
+      function showCaption(ev) {
+        const magStr = 'M' + Number(ev.mag || 4.5).toFixed(1);
+        captionEl.textContent = `${magStr}  ·  ${ev.place || 'SEISMIC EVENT'}`;
+        captionEl.classList.add('visible');
+        if (captionTimer) clearTimeout(captionTimer);
+        captionTimer = setTimeout(() => captionEl.classList.remove('visible'), 4200);
+      }
+
+      function drawWaveform() {
+        requestAnimationFrame(drawWaveform);
+        const w = waveCanvas.width, h = waveCanvas.height;
+        waveCtx.clearRect(0, 0, w, h);
+        waveCtx.strokeStyle = '#141414';
+        waveCtx.lineWidth = 1.4;
+        waveCtx.beginPath();
+        if (audioEngine.analyser && audioEngine.isPlaying) {
+          const data = new Uint8Array(audioEngine.analyser.frequencyBinCount);
+          audioEngine.analyser.getByteTimeDomainData(data);
+          for (let i = 0; i < data.length; i++) {
+            const x = (i / (data.length - 1)) * w;
+            const y = ((data[i] - 128) / 128) * (h * 0.42) + h / 2;
+            if (i === 0) waveCtx.moveTo(x, y); else waveCtx.lineTo(x, y);
+          }
+        } else {
+          waveCtx.moveTo(0, h / 2);
+          waveCtx.lineTo(w, h / 2);
+        }
+        waveCtx.stroke();
+      }
+      drawWaveform();
+
+      let triggerEarthquakeVisual = () => {};
+
+      function initWebGL() {
+        const R = 100;
+        const INITIAL_DIST_RATIO = 3.68;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf6f6f4);
+
+        const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 1, 2000);
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        let theta = 2.4;
+        let phi = 1.25;
+        let targetDist = R * INITIAL_DIST_RATIO;
+        let currentDist = targetDist;
+        let velTheta = 0;
+        let velPhi = 0;
+
+        function computeResponsiveDistance() {
+          const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+          const base = R * INITIAL_DIST_RATIO;
+          return aspect < 1 ? base / Math.max(0.45, aspect * 0.92) : base;
+        }
+        targetDist = currentDist = computeResponsiveDistance();
+
+        function updateCameraPosition() {
+          phi = Math.max(0.18, Math.min(Math.PI - 0.18, phi));
+          camera.position.set(
+            currentDist * Math.sin(phi) * Math.sin(theta),
+            currentDist * Math.cos(phi),
+            currentDist * Math.sin(phi) * Math.cos(theta)
+          );
+          camera.lookAt(0, 0, 0);
+        }
+
+        const globeGeo = new THREE.SphereGeometry(R, 72, 72);
+        const globeMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uLightDir: { value: new THREE.Vector3(0.55, 0.72, 0.42).normalize() }
+          },
+          vertexShader: `
+            varying vec3 vNormalW;
+            varying vec3 vViewDir;
+            void main() {
+              vec4 worldPos = modelMatrix * vec4(position, 1.0);
+              vNormalW = normalize(mat3(modelMatrix) * normal);
+              vViewDir = normalize(cameraPosition - worldPos.xyz);
+              gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+          `,
+          fragmentShader: `
+            uniform vec3 uLightDir;
+            varying vec3 vNormalW;
+            varying vec3 vViewDir;
+            void main() {
+              float diff = clamp(dot(vNormalW, uLightDir), 0.0, 1.0);
+              float fresnel = pow(1.0 - max(dot(vNormalW, vViewDir), 0.0), 2.6);
+              vec3 baseCol = mix(vec3(0.895, 0.895, 0.888), vec3(0.992, 0.992, 0.988), diff * 0.82 + 0.18);
+              vec3 col = mix(baseCol, vec3(0.82, 0.82, 0.81), fresnel * 0.35);
+              gl_FragColor = vec4(col, 1.0);
+            }
+          `
+        });
+        scene.add(new THREE.Mesh(globeGeo, globeMat));
+
+        const haloGeo = new THREE.SphereGeometry(R * 1.055, 64, 64);
+        const haloMat = new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          side: THREE.BackSide,
+          vertexShader: `
+            varying vec3 vNormalW;
+            varying vec3 vViewDir;
+            void main() {
+              vec4 worldPos = modelMatrix * vec4(position, 1.0);
+              vNormalW = normalize(mat3(modelMatrix) * normal);
+              vViewDir = normalize(cameraPosition - worldPos.xyz);
+              gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+          `,
+          fragmentShader: `
+            varying vec3 vNormalW;
+            varying vec3 vViewDir;
+            void main() {
+              float intensity = pow(clamp(0.55 - dot(vNormalW, vViewDir), 0.0, 1.0), 2.4);
+              gl_FragColor = vec4(0.12, 0.12, 0.12, intensity * 0.14);
+            }
+          `
+        });
+        scene.add(new THREE.Mesh(haloGeo, haloMat));
+
+        const shadowGeo = new THREE.PlaneGeometry(R * 2.5, R * 2.5);
+        const shadowMat = new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          vertexShader: `
+            varying vec2 vUv;
+            void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+          `,
+          fragmentShader: `
+            varying vec2 vUv;
+            void main() {
+              float d = length(vUv - 0.5) * 2.0;
+              float a = smoothstep(1.0, 0.0, d) * 0.09;
+              gl_FragColor = vec4(0.08, 0.08, 0.08, a);
+            }
+          `
+        });
+        const shadowPlane = new THREE.Mesh(shadowGeo, shadowMat);
+        shadowPlane.rotation.x = -Math.PI / 2;
+        shadowPlane.position.y = -R * 1.24;
+        scene.add(shadowPlane);
+
+        const dustCount = 140;
+        const dustPos = new Float32Array(dustCount * 3);
+        for (let i = 0; i < dustCount; i++) {
+          const rad = R * (1.45 + Math.random() * 1.5);
+          const a = Math.random() * Math.PI * 2;
+          const b = Math.acos(2 * Math.random() - 1);
+          dustPos[i * 3] = rad * Math.sin(b) * Math.cos(a);
+          dustPos[i * 3 + 1] = rad * Math.cos(b);
+          dustPos[i * 3 + 2] = rad * Math.sin(b) * Math.sin(a);
+        }
+        const dustGeo = new THREE.BufferGeometry();
+        dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+        const dustMat = new THREE.PointsMaterial({ color: 0x1a1a1a, size: 1.5, transparent: true, opacity: 0.16 });
+        const dustPoints = new THREE.Points(dustGeo, dustMat);
+        scene.add(dustPoints);
+
+        const mapGroup = new THREE.Group();
+        scene.add(mapGroup);
+
+        function latLonToVec3(lat, lon, radius) {
+          const phiL = (90 - lat) * (Math.PI / 180);
+          const thetaL = (lon + 180) * (Math.PI / 180);
+          return new THREE.Vector3(
+            -radius * Math.sin(phiL) * Math.cos(thetaL),
+            radius * Math.cos(phiL),
+            radius * Math.sin(phiL) * Math.sin(thetaL)
+          );
+        }
+
+        function buildMapLines(polylines, colorHex, opacity, rOffset) {
+          const positions = [];
+          for (const ring of polylines) {
+            for (let i = 0; i < ring.length - 1; i++) {
+              const p1 = latLonToVec3(ring[i][1], ring[i][0], R + rOffset);
+              const p2 = latLonToVec3(ring[i + 1][1], ring[i + 1][0], R + rOffset);
+              positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+            }
+          }
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+          const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity });
+          return new THREE.LineSegments(geo, mat);
+        }
+
+        let fallbackLines = buildMapLines(FALLBACK_COASTLINES, 0x1a1a1a, 0.72, 0.25);
+        mapGroup.add(fallbackLines);
+
+        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(topo => {
+            const landLines = decodeTopoJson(topo, 'land');
+            const countryLines = decodeTopoJson(topo, 'countries');
+            if (landLines.length > 0 || countryLines.length > 0) {
+              mapGroup.remove(fallbackLines);
+              if (countryLines.length > 0) mapGroup.add(buildMapLines(countryLines, 0xb5b5b0, 0.55, 0.22));
+              if (landLines.length > 0) mapGroup.add(buildMapLines(landLines, 0x1a1a1a, 0.78, 0.3));
+            }
+          })
+          .catch(() => {});
+
+        const activeEffects = [];
+
+        const particleShaderMat = new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          vertexShader: `
+            attribute float aAlpha;
+            attribute float aSize;
+            varying float vAlpha;
+            void main() {
+              vAlpha = aAlpha;
+              vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+              gl_PointSize = aSize * (360.0 / max(1.0, -mvPos.z));
+              gl_Position = projectionMatrix * mvPos;
+            }
+          `,
+          fragmentShader: `
+            varying float vAlpha;
+            void main() {
+              float dist = length(gl_PointCoord - vec2(0.5));
+              float mask = smoothstep(0.5, 0.05, dist);
+              gl_FragColor = vec4(0.05, 0.05, 0.05, mask * vAlpha);
+            }
+          `
+        });
+
+        function createEarthquakeEffect(ev) {
+          const center = latLonToVec3(ev.lat, ev.lon, R + 0.45);
+          const normal = center.clone().normalize();
+          const upRef = Math.abs(normal.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+          const tangent1 = new THREE.Vector3().crossVectors(upRef, normal).normalize();
+          const tangent2 = new THREE.Vector3().crossVectors(normal, tangent1).normalize();
+
+          const mag = Number(ev.mag || 4.8);
+          const count = Math.min(180, Math.floor(65 + mag * 14));
+          const positions = new Float32Array(count * 3);
+          const alphas = new Float32Array(count);
+          const sizes = new Float32Array(count);
+          const meta = [];
+
+          for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const startRadius = (12 + Math.random() * 24) * (0.7 + mag * 0.1);
+            const initSize = 1.0 + Math.random() * 1.4;
+            const maxSize = 3.5 + Math.random() * 3.0;
+            const peakAlpha = 0.35 + Math.random() * 0.13;
+            meta.push({ angle, startRadius, initSize, maxSize, peakAlpha, spiralSpin: (Math.random() > 0.5 ? 1 : -1) * (1.4 + Math.random() * 1.5), delay: Math.random() * 0.25 });
+            alphas[i] = 0;
+            sizes[i] = initSize;
+          }
+
+          const pGeo = new THREE.BufferGeometry();
+          pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+          pGeo.setAttribute('aAlpha', new THREE.BufferAttribute(alphas, 1));
+          pGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+          const points = new THREE.Points(pGeo, particleShaderMat);
+          scene.add(points);
+
+          const group = new THREE.Group();
+          group.position.copy(center);
+          group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+
+          const coreMesh = new THREE.Mesh(
+            new THREE.CircleGeometry(1.1 + mag * 0.2, 24),
+            new THREE.MeshBasicMaterial({ color: 0x0d0d0d, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+          );
+          const haloMesh = new THREE.Mesh(
+            new THREE.CircleGeometry(3.2 + mag * 0.5, 32),
+            new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+          );
+          group.add(coreMesh, haloMesh);
+
+          const rings = [];
+          for (let r = 0; r < 3; r++) {
+            const ringMesh = new THREE.Mesh(
+              new THREE.RingGeometry(0.92, 1.0, 48),
+              new THREE.MeshBasicMaterial({ color: 0x141414, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+            );
+            ringMesh.userData = { delay: r * 0.22, maxScale: (5.5 + mag * 1.8) * (1 + r * 0.35) };
+            group.add(ringMesh);
+            rings.push(ringMesh);
+          }
+          scene.add(group);
+
+          audioEngine.playGatherNoiseSFX(mag);
+
+          activeEffects.push({
+            startTime: performance.now(),
+            gatherDuration: 850,
+            totalDuration: 3400,
+            ruptured: false,
+            mag, center, normal, tangent1, tangent2,
+            pGeo, points, meta, group, coreMesh, haloMesh, rings
+          });
+        }
+
+        triggerEarthquakeVisual = (ev) => {
+          createEarthquakeEffect(ev);
+          showCaption(ev);
+        };
+
+        let dragging = false;
+        let lastX = 0, lastY = 0;
+
+        canvas.addEventListener('pointerdown', (e) => {
+          dragging = true;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          velTheta = 0;
+          velPhi = 0;
+        });
+        window.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          const dx = e.clientX - lastX;
+          const dy = e.clientY - lastY;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          const sensitivity = 0.0052;
+          theta -= dx * sensitivity;
+          phi -= dy * sensitivity;
+          velTheta = -dx * sensitivity * 0.65;
+          velPhi = -dy * sensitivity * 0.65;
+        });
+        window.addEventListener('pointerup', () => { dragging = false; });
+
+        canvas.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          targetDist = Math.max(R * 1.55, Math.min(R * 6.5, targetDist + e.deltaY * 0.22));
+        }, { passive: false });
+
+        window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / Math.max(1, window.innerHeight);
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          targetDist = computeResponsiveDistance();
+        });
+
+        let lastFrameTime = performance.now();
+        function animate(now) {
+          requestAnimationFrame(animate);
+          const dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+          lastFrameTime = now;
+
+          if (!dragging) {
+            theta += velTheta;
+            phi += velPhi;
+            velTheta *= 0.92;
+            velPhi *= 0.92;
+            if (autoRotate) theta -= 0.055 * dt;
+          }
+          currentDist += (targetDist - currentDist) * 0.08;
+          updateCameraPosition();
+          dustPoints.rotation.y += 0.015 * dt;
+
+          for (let i = activeEffects.length - 1; i >= 0; i--) {
+            const ef = activeEffects[i];
+            const elapsed = now - ef.startTime;
+            if (elapsed > ef.totalDuration) {
+              scene.remove(ef.points);
+              scene.remove(ef.group);
+              ef.pGeo.dispose();
+              activeEffects.splice(i, 1);
+              continue;
+            }
+
+            const posArr = ef.pGeo.attributes.position.array;
+            const alphaArr = ef.pGeo.attributes.aAlpha.array;
+            const sizeArr = ef.pGeo.attributes.aSize.array;
+
+            for (let j = 0; j < ef.meta.length; j++) {
+              const m = ef.meta[j];
+              const localT = (elapsed / ef.gatherDuration) - m.delay;
+              if (localT <= 0 || localT >= 1.15) {
+                alphaArr[j] = 0;
+                continue;
+              }
+              const t = Math.min(1, localT);
+              const ease = t * t * (3 - 2 * t);
+              const rad = m.startRadius * (1 - ease);
+              const ang = m.angle + ease * m.spiralSpin;
+              const p = ef.center.clone()
+                .addScaledVector(ef.tangent1, Math.cos(ang) * rad)
+                .addScaledVector(ef.tangent2, Math.sin(ang) * rad)
+                .normalize()
+                .multiplyScalar(R + 0.55 + (1 - ease) * 3.5);
+              posArr[j * 3] = p.x;
+              posArr[j * 3 + 1] = p.y;
+              posArr[j * 3 + 2] = p.z;
+
+              sizeArr[j] = m.initSize + (m.maxSize - m.initSize) * Math.sin(t * Math.PI * 0.85);
+              alphaArr[j] = localT > 0.9 ? m.peakAlpha * Math.max(0, 1 - (localT - 0.9) / 0.25) : m.peakAlpha * Math.min(1, t * 2.2);
+            }
+            ef.pGeo.attributes.position.needsUpdate = true;
+            ef.pGeo.attributes.aAlpha.needsUpdate = true;
+            ef.pGeo.attributes.aSize.needsUpdate = true;
+
+            if (elapsed >= ef.gatherDuration * 0.9) {
+              if (!ef.ruptured) {
+                ef.ruptured = true;
+                audioEngine.playRuptureSFX(ef.mag);
+              }
+              const postT = (elapsed - ef.gatherDuration * 0.9) / (ef.totalDuration - ef.gatherDuration * 0.9);
+              ef.coreMesh.material.opacity = Math.max(0, (1 - postT) * 0.88);
+              ef.haloMesh.material.opacity = Math.max(0, (1 - postT) * 0.22);
+              ef.rings.forEach((ring) => {
+                const rt = (postT - ring.userData.delay) / (1 - ring.userData.delay);
+                if (rt > 0 && rt < 1) {
+                  const s = 1 + rt * ring.userData.maxScale;
+                  ring.scale.set(s, s, 1);
+                  ring.material.opacity = (1 - rt) * 0.55;
+                } else {
+                  ring.material.opacity = 0;
+                }
+              });
+            }
+          }
+
+          if (mode === '30D' && historyPlaying && historyEvents.length > 0) {
+            const daysPerSec = SPEEDS[speedIdx].daysPerSec;
+            historyProgress += (daysPerSec / 30) * dt;
+            if (historyProgress > 1) { historyProgress = 0; lastHistoryIdx = -1; }
+            historySlider.value = String(Math.floor(historyProgress * 1000));
+            stepHistoryTimeline(historyProgress);
+          }
+
+          renderer.render(scene, camera);
+        }
+        requestAnimationFrame(animate);
+      }
+
+      function normalizeFeature(f) {
+        return {
+          id: f.id,
+          mag: f.properties.mag || 3.0,
+          place: f.properties.place || 'Unknown',
+          time: f.properties.time || Date.now(),
+          lon: f.geometry.coordinates[0],
+          lat: f.geometry.coordinates[1],
+          depth: f.geometry.coordinates[2] || 10
+        };
+      }
+
+      function renderQuakeList(events) {
+        quakeListEl.innerHTML = '';
+        events.slice(0, 30).forEach((ev) => {
+          const item = document.createElement('div');
+          item.className = 'quake-item';
+          item.innerHTML = `<div class="quake-item-top"><span>M${ev.mag.toFixed(1)}</span><span>${new Date(ev.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div><div class="quake-item-place">${ev.place}</div>`;
+          item.addEventListener('click', () => triggerEarthquakeVisual(ev));
+          quakeListEl.appendChild(item);
+        });
+      }
+
+      function fetchLiveQuakes(isInitial) {
+        fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson')
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(data => {
+            const parsed = (data.features || []).map(normalizeFeature);
+            liveEvents = parsed;
+            statusText.textContent = `LIVE · ${parsed.length} EVENTS (24H)`;
+            renderQuakeList(parsed);
+            if (isInitial) {
+              parsed.forEach(e => knownIds.add(e.id));
+              if (parsed[0]) triggerEarthquakeVisual(parsed[0]);
+            } else if (mode === 'LIVE') {
+              parsed.forEach(e => {
+                if (!knownIds.has(e.id)) {
+                  knownIds.add(e.id);
+                  triggerEarthquakeVisual(e);
+                }
+              });
+            }
+          })
+          .catch(() => {
+            statusText.textContent = 'OFFLINE / STANDBY';
+          });
+      }
+
+      function fetch30DQuakes() {
+        statusText.textContent = 'LOADING 30D...';
+        fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_month.geojson')
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(data => {
+            historyEvents = (data.features || []).map(normalizeFeature).sort((a, b) => a.time - b.time);
+            statusText.textContent = `HISTORY 30D · ${historyEvents.length} EVENTS`;
+            renderQuakeList([...historyEvents].reverse());
+          })
+          .catch(() => {
+            statusText.textContent = '30D FEED UNAVAILABLE';
+          });
+      }
+
+      function stepHistoryTimeline(progress) {
+        if (historyEvents.length === 0) return;
+        const minMag = MAG_FILTERS[magFilterIdx].min;
+        const idx = Math.min(historyEvents.length - 1, Math.floor(progress * historyEvents.length));
+        const currentEv = historyEvents[idx];
+        const d = new Date(currentEv.time);
+        historyDateEl.textContent = `${d.getMonth() + 1}/${d.getDate()}`;
+        if (idx > lastHistoryIdx) {
+          let triggered = 0;
+          for (let k = Math.max(0, lastHistoryIdx + 1); k <= idx && triggered < 3; k++) {
+            if (historyEvents[k].mag >= minMag) {
+              triggerEarthquakeVisual(historyEvents[k]);
+              triggered++;
+            }
+          }
+          lastHistoryIdx = idx;
+        }
+      }
+
+      const btnLive = document.getElementById('btn-live');
+      const btn30d = document.getElementById('btn-30d');
+      const btnSim = document.getElementById('btn-sim');
+      const btnInfo = document.getElementById('btn-info');
+      const playBtn = document.getElementById('play-btn');
+      const audioMoreBtn = document.getElementById('audio-more-btn');
+      const audioPopover = document.getElementById('audio-popover');
+
+      btnLive.addEventListener('click', () => {
+        mode = 'LIVE';
+        btnLive.classList.add('active');
+        btn30d.classList.remove('active');
+        historyBar.classList.remove('visible');
+      });
+
+      btn30d.addEventListener('click', () => {
+        mode = '30D';
+        btn30d.classList.add('active');
+        btnLive.classList.remove('active');
+        historyBar.classList.add('visible');
+        if (historyEvents.length === 0) fetch30DQuakes();
+      });
+
+      btnSim.addEventListener('click', () => {
+        audioEngine.ensureContext();
+        const presets = [
+          { lat: 35.68, lon: 139.69, mag: 5.4, place: 'Simulated — Off Honshu, Japan' },
+          { lat: 37.77, lon: -122.42, mag: 4.9, place: 'Simulated — Northern California' },
+          { lat: -33.45, lon: -70.66, mag: 6.1, place: 'Simulated — Central Chile' },
+          { lat: 64.14, lon: -21.94, mag: 4.5, place: 'Simulated — Reykjanes Ridge' }
+        ];
+        const pick = presets[Math.floor(Math.random() * presets.length)];
+        triggerEarthquakeVisual(pick);
+      });
+
+      btnInfo.addEventListener('click', () => {
+        const isOpen = infoDrawer.classList.toggle('open');
+        infoDrawer.setAttribute('aria-hidden', String(!isOpen));
+      });
+      document.getElementById('drawer-close').addEventListener('click', () => {
+        infoDrawer.classList.remove('open');
+        infoDrawer.setAttribute('aria-hidden', 'true');
+      });
+
+      playBtn.addEventListener('click', () => {
+        const playing = audioEngine.togglePlay();
+        playBtn.textContent = playing ? '❚❚' : '▶';
+      });
+
+      audioMoreBtn.addEventListener('click', () => audioPopover.classList.toggle('open'));
+
+      audioPopover.querySelectorAll('[data-preset]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          audioPopover.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          audioEngine.presetIndex = Number(btn.dataset.preset);
+        });
+      });
+
+      document.getElementById('vinyl-range').addEventListener('input', (e) => {
+        audioEngine.setVinyl(Number(e.target.value));
+      });
+
+      document.getElementById('sfx-toggle').addEventListener('click', (e) => {
+        audioEngine.sfxEnabled = !audioEngine.sfxEnabled;
+        e.target.textContent = audioEngine.sfxEnabled ? 'ON' : 'OFF';
+        e.target.classList.toggle('active', audioEngine.sfxEnabled);
+      });
+
+      document.getElementById('rotate-toggle').addEventListener('click', (e) => {
+        autoRotate = !autoRotate;
+        e.target.textContent = autoRotate ? 'ON' : 'OFF';
+        e.target.classList.toggle('active', autoRotate);
+      });
+
+      document.getElementById('history-play-btn').addEventListener('click', (e) => {
+        historyPlaying = !historyPlaying;
+        e.target.textContent = historyPlaying ? '❚❚' : '▶';
+      });
+
+      historySlider.addEventListener('input', (e) => {
+        historyProgress = Number(e.target.value) / 1000;
+        lastHistoryIdx = Math.floor(historyProgress * historyEvents.length) - 1;
+        stepHistoryTimeline(historyProgress);
+      });
+
+      document.getElementById('history-speed-btn').addEventListener('click', (e) => {
+        speedIdx = (speedIdx + 1) % SPEEDS.length;
+        e.target.textContent = SPEEDS[speedIdx].label;
+      });
+
+      document.getElementById('history-mag-btn').addEventListener('click', (e) => {
+        magFilterIdx = (magFilterIdx + 1) % MAG_FILTERS.length;
+        e.target.textContent = MAG_FILTERS[magFilterIdx].label;
+      });
+
+      loadScriptSequential(THREE_CDNS, 0, (ok) => {
+        if (ok && window.THREE) initWebGL();
+        fetchLiveQuakes(true);
+        setInterval(() => fetchLiveQuakes(false), 60000);
+      });
+    })();
+  </script>
+</body>
+</html>
